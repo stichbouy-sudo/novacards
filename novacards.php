@@ -48,7 +48,6 @@ if (isset($_GET['mark_taken'])) {
     exit();
 }
 
-// Reset "Taken" status only
 if (isset($_POST['unlock_all'])) {
     foreach ($_SESSION['cards'] as &$card) {
         $card['taken'] = false;
@@ -57,7 +56,6 @@ if (isset($_POST['unlock_all'])) {
     exit();
 }
 
-// NEW: Clear all questions completely
 if (isset($_POST['clear_all'])) {
     $_SESSION['cards'] = [];
     header("Location: " . $_SERVER['PHP_SELF']);
@@ -72,7 +70,7 @@ if (isset($_POST['clear_all'])) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NovaCards - Flip System</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <style>
+ <style>
         .card-container { perspective: 1000px; height: 280px; }
         .card-inner {
             position: relative; width: 100%; height: 100%;
@@ -97,11 +95,84 @@ if (isset($_POST['clear_all'])) {
 
         /* Highlight effect for random selection */
         .picking { ring: 4px; ring-color: #6366f1; transform: scale(1.05); }
+
+        .roulette-wheel {
+            width: 320px;
+            height: 320px;
+            border-radius: 9999px;
+            border: 8px solid rgba(99, 102, 241, 0.4);
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 20px 40px rgba(15, 23, 42, 0.6);
+            transition: transform 1.8s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+
+        .roulette-label {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform-origin: 0 0;
+            color: #0f172a;
+            font-weight: 700;
+            font-size: 0.8rem;
+            text-shadow: 0 1px 2px rgba(255,255,255,0.6);
+            white-space: nowrap;
+        }
+
+        .roulette-pointer {
+            width: 0;
+            height: 0;
+            border-left: 14px solid transparent;
+            border-right: 14px solid transparent;
+            border-bottom: 24px solid #f59e0b;
+            position: absolute;
+            top: -18px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        .name-chip-selected {
+            background: linear-gradient(135deg, #f59e0b, #fbbf24);
+            color: #0f172a;
+            border-color: transparent;
+            transform: scale(1.05);
+            box-shadow: 0 10px 20px rgba(245, 158, 11, 0.4);
+        }
+
+        .roulette-winner {
+            animation: winnerPulse 1s ease-in-out infinite;
+        }
+
+        @keyframes winnerPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.08); }
+        }
+
+        .roulette-modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 50;
+        }
+
+        .roulette-modal-card {
+            background: #0f172a;
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 24px;
+            padding: 32px;
+            text-align: center;
+            width: min(420px, 90vw);
+            box-shadow: 0 30px 80px rgba(15, 23, 42, 0.7);
+        }
     </style>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen p-6 md:p-12">
 
     <div class="max-w-5xl mx-auto">
+        <div id="novacardsView">
         <header class="text-center mb-10">
             <h1 class="text-5xl font-black text-indigo-500 mb-2">NovaCards</h1>
             <p class="text-slate-500">Add multiple questions below. Cards marked as "Taken" will be locked.</p>
@@ -121,6 +192,9 @@ if (isset($_POST['clear_all'])) {
                         </button>
                         <button type="button" onclick="randomSelect()" class="bg-amber-500 hover:bg-amber-400 text-slate-950 px-6 py-3 rounded-xl font-black transition-all shadow-lg">
                             🎲 Random Select
+                        </button>
+                        <button type="button" onclick="showRoulette()" class="bg-slate-800 hover:bg-slate-700 text-indigo-200 px-6 py-3 rounded-xl font-black transition-all shadow-lg border border-slate-700">
+                            🎡 Name Roulette
                         </button>
                     </div>
                     
@@ -147,13 +221,7 @@ if (isset($_POST['clear_all'])) {
                             
                             <?php if ($card['taken']): ?>
                                 <div class="text-emerald-500 mb-2">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                                    </svg>
-                                </div>
-                                <span class="text-xs font-bold text-emerald-500 uppercase tracking-widest">Taken</span>
-                            <?php else: ?>
-                                <div class="text-7xl font-black text-slate-800"><?php echo $index + 1; ?></div>
+@@ -157,63 +233,292 @@ if (isset($_POST['clear_all'])) {
                             <?php endif; ?>
 
                             <div class="flex gap-2 mt-6" onclick="event.stopPropagation();">
@@ -179,9 +247,236 @@ if (isset($_POST['clear_all'])) {
                 </div>
             <?php endforeach; ?>
         </div>
+        </div>
+
+        <section id="rouletteView" class="hidden">
+            <header class="text-center mb-10">
+                <h2 class="text-4xl font-black text-amber-400 mb-2">Name Roulette</h2>
+                <p class="text-slate-500">Add names, spin the wheel, and decide whether the selected name stays.</p>
+            </header>
+
+            <div id="rouletteModal" class="roulette-modal hidden">
+                <div class="roulette-modal-card">
+                    <p class="text-xs uppercase tracking-widest text-slate-400 mb-3">Selected Name</p>
+                    <p id="modalSelectedName" class="text-4xl font-black text-amber-300 mb-2">—</p>
+                    <p id="modalStatus" class="text-sm text-slate-400 mb-6"></p>
+                    <div class="flex flex-col sm:flex-row gap-3 justify-center">
+                        <button id="modalRemoveButton" type="button" onclick="removeSelectedName()" class="bg-rose-500 hover:bg-rose-400 text-slate-950 px-6 py-3 rounded-xl font-black transition-all shadow-lg">
+                            Remove from Wheel
+                        </button>
+                        <button type="button" onclick="closeResultModal()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-6 py-3 rounded-xl font-black transition-all shadow-lg border border-slate-700">
+                            Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-slate-900 p-6 rounded-3xl border border-slate-800 shadow-2xl mb-10">
+                <div class="flex flex-col md:flex-row gap-6 items-center">
+                    <div class="flex-1 w-full">
+                        <label class="block text-xs uppercase tracking-widest text-slate-400 mb-2">Add names (comma or new line separated)</label>
+                        <div class="flex flex-col md:flex-row gap-2">
+                            <textarea id="nameInput" rows="3" class="flex-1 p-3 rounded-xl bg-slate-800 border border-slate-700 focus:ring-2 focus:ring-amber-400 focus:outline-none" placeholder="Type names here..."></textarea>
+                            <button type="button" onclick="addName()" class="bg-amber-500 hover:bg-amber-400 text-slate-950 px-6 py-3 rounded-xl font-black transition-all shadow-lg">
+                                Add Names
+                            </button>
+                        </div>
+
+                        <div class="mt-4 flex flex-wrap gap-3">
+                            <button type="button" onclick="spinWheel()" class="bg-indigo-600 hover:bg-indigo-500 px-6 py-3 rounded-xl font-bold transition-all shadow-lg">
+                                Spin
+                            </button>
+                            <label class="flex items-center gap-2 text-sm text-slate-300 bg-slate-800 border border-slate-700 px-4 py-2 rounded-xl">
+                                <input id="removeAfterSpin" type="checkbox" class="accent-rose-500" />
+                                Remove selected after spin
+                            </label>
+                            <button type="button" onclick="resetNames()" class="text-rose-300 hover:text-white flex items-center gap-2 px-4 py-2 rounded-xl border border-rose-900/30 transition hover:bg-rose-900/20 text-sm font-bold">
+                                🧹 Reset Names
+                            </button>
+                            <button type="button" onclick="showNovaCards()" class="text-slate-200 hover:text-white flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-700 transition hover:bg-slate-800 text-sm font-bold">
+                                ↩️ Back to NovaCards
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="relative flex flex-col items-center gap-4">
+                        <div class="roulette-wheel bg-slate-200" id="rouletteWheel">
+                            <span class="roulette-pointer"></span>
+                        </div>
+                        <div class="text-center">
+                            <p class="text-xs uppercase tracking-widest text-slate-500">Selected</p>
+                            <p id="selectedName" class="text-xl font-black text-amber-300">—</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-8">
+                    <p class="text-xs uppercase tracking-widest text-slate-400 mb-2">Names on the wheel</p>
+                    <div id="nameList" class="flex flex-wrap gap-2"></div>
+                    <p id="emptyNames" class="text-sm text-slate-500 mt-3">No names yet. Add a few to start spinning!</p>
+                </div>
+            </div>
+        </section>
     </div>
 
     <script>
+        const novacardsView = document.getElementById('novacardsView');
+        const rouletteView = document.getElementById('rouletteView');
+        const rouletteWheel = document.getElementById('rouletteWheel');
+        const nameInput = document.getElementById('nameInput');
+        const nameList = document.getElementById('nameList');
+        const emptyNames = document.getElementById('emptyNames');
+        const selectedName = document.getElementById('selectedName');
+        const removeAfterSpin = document.getElementById('removeAfterSpin');
+        const rouletteModal = document.getElementById('rouletteModal');
+        const modalSelectedName = document.getElementById('modalSelectedName');
+        const modalStatus = document.getElementById('modalStatus');
+        const modalRemoveButton = document.getElementById('modalRemoveButton');
+
+        const wheelColors = ['#fef08a', '#fed7aa', '#fbcfe8', '#e9d5ff', '#bae6fd', '#bbf7d0', '#fde68a', '#fecaca'];
+        let rouletteNames = [];
+        let lastSelectedIndex = null;
+        let currentRotation = 0;
+        let isSpinning = false;
+        let hasRemovedSelected = false;
+
+        function showRoulette() {
+            novacardsView.classList.add('hidden');
+            rouletteView.classList.remove('hidden');
+        }
+
+        function showNovaCards() {
+            rouletteView.classList.add('hidden');
+            novacardsView.classList.remove('hidden');
+        }
+
+        function addName() {
+            const value = nameInput.value.trim();
+            if (!value) {
+                nameInput.focus();
+                return;
+            }
+            const entries = value
+                .split(/[\n,]+/)
+                .map(name => name.trim())
+                .filter(name => name.length > 0);
+            if (entries.length === 0) {
+                nameInput.focus();
+                return;
+            }
+            rouletteNames = rouletteNames.concat(entries);
+            nameInput.value = '';
+            renderRoulette();
+        }
+
+        function resetNames() {
+            rouletteNames = [];
+            lastSelectedIndex = null;
+            selectedName.textContent = '—';
+            selectedName.classList.remove('roulette-winner');
+            currentRotation = 0;
+            rouletteWheel.style.transform = 'rotate(0deg)';
+            closeResultModal();
+            renderRoulette();
+        }
+
+        function spinWheel() {
+            if (rouletteNames.length === 0) {
+                alert('Add at least one name to spin the wheel.');
+                return;
+            }
+            if (isSpinning) {
+                return;
+            }
+            closeResultModal();
+            isSpinning = true;
+            selectedName.classList.remove('roulette-winner');
+            const count = rouletteNames.length;
+            lastSelectedIndex = Math.floor(Math.random() * count);
+            const degreesPerSlice = 360 / count;
+            const targetRotation = 360 - (degreesPerSlice * lastSelectedIndex) - (degreesPerSlice / 2);
+            const extraSpins = 360 * (Math.floor(Math.random() * 3) + 4);
+            currentRotation += extraSpins + targetRotation;
+            rouletteWheel.style.transform = `rotate(${currentRotation}deg)`;
+
+            const name = rouletteNames[lastSelectedIndex];
+            setTimeout(() => {
+                selectedName.textContent = name;
+                selectedName.classList.add('roulette-winner');
+                openResultModal(name);
+
+                if (removeAfterSpin.checked) {
+                    removeSelectedName(true);
+                }
+                renderRoulette();
+                isSpinning = false;
+            }, 1800);
+        }
+
+        function openResultModal(name) {
+            modalSelectedName.textContent = name;
+            modalStatus.textContent = '';
+            modalRemoveButton.disabled = false;
+            modalRemoveButton.classList.remove('opacity-50', 'cursor-not-allowed');
+            hasRemovedSelected = false;
+            rouletteModal.classList.remove('hidden');
+        }
+
+        function closeResultModal() {
+            rouletteModal.classList.add('hidden');
+        }
+
+        function removeSelectedName(isAuto = false) {
+            if (lastSelectedIndex === null || hasRemovedSelected) {
+                return;
+            }
+            rouletteNames.splice(lastSelectedIndex, 1);
+            lastSelectedIndex = null;
+            hasRemovedSelected = true;
+            modalStatus.textContent = isAuto ? 'Removed from the wheel.' : 'Name removed. Spin again!';
+            modalRemoveButton.disabled = true;
+            modalRemoveButton.classList.add('opacity-50', 'cursor-not-allowed');
+            renderRoulette();
+        }
+
+        function renderRoulette() {
+            nameList.innerHTML = '';
+            rouletteWheel.querySelectorAll('.roulette-label').forEach(label => label.remove());
+
+            if (rouletteNames.length === 0) {
+                rouletteWheel.style.background = '#1e293b';
+                emptyNames.classList.remove('hidden');
+                return;
+            }
+
+            emptyNames.classList.add('hidden');
+
+            rouletteNames.forEach((name, index) => {
+                const chip = document.createElement('span');
+                chip.className = 'px-3 py-1 rounded-full bg-slate-800 text-slate-200 text-xs font-semibold border border-slate-700 transition';
+                chip.textContent = name;
+                if (index === lastSelectedIndex) {
+                    chip.classList.add('name-chip-selected');
+                }
+                nameList.appendChild(chip);
+
+                const label = document.createElement('span');
+                label.className = 'roulette-label';
+                const angle = (360 / rouletteNames.length) * index;
+                label.style.transform = `rotate(${angle}deg) translate(110px, -10px)`;
+                label.textContent = name;
+                rouletteWheel.appendChild(label);
+            });
+
+            const gradients = rouletteNames.map((_, index) => {
+                const start = (360 / rouletteNames.length) * index;
+                const end = (360 / rouletteNames.length) * (index + 1);
+                const color = wheelColors[index % wheelColors.length];
+                return `${color} ${start}deg ${end}deg`;
+            });
+            rouletteWheel.style.background = `conic-gradient(${gradients.join(',')})`;
+        }
+
         function randomSelect() {
             // Get all card containers that are NOT marked as taken
             const allCards = document.querySelectorAll('.card-container[data-taken="false"]');
@@ -214,6 +509,8 @@ if (isset($_POST['clear_all'])) {
                 }, 2000);
             }, 500);
         }
+
+        renderRoulette();
     </script>
 </body>
 </html>
